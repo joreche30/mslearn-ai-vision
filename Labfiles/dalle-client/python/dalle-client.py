@@ -1,43 +1,88 @@
 import os
-import base64
-from openai import AzureOpenAI
+import json
 
-def save_base64_image(b64_data: str, output_path: str):
-    image_bytes = base64.b64decode(b64_data)
-    with open(output_path, "wb") as f:
-        f.write(image_bytes)
+# Add references
+from dotenv import load_dotenv
+from azure.identity import DefaultAzureCredential, get_bearer_token_provider
+from openai import AzureOpenAI
+import requests
+
 
 def main():
-    client = AzureOpenAI(
-        api_version="2024-02-01",
-        azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
-        api_key=os.getenv("AZURE_OPENAI_KEY")
-    )
 
-    # Task 2 — Generate an image from a prompt
-    prompt = "A robot holding a cup of coffee"
-    result = client.images.generate(
-        model="dall-e-3",
-        prompt=prompt,
-        size="1024x1024"
-    )
+    # Clear the console
+    os.system('cls' if os.name=='nt' else 'clear')
 
-    image_base64 = result.data[0].b64_json
-    save_base64_image(image_base64, "generated_coffee_robot.png")
-    print("Saved: generated_coffee_robot.png")
+    try:
 
-    # Task 3 — Edit an existing image (inpainting)
-    edit_result = client.images.edit(
-        model="dall-e-3",
-        image=open("city.png", "rb"),
-        mask=open("mask.png", "rb"),
-        prompt="Add a futuristic flying car in the masked area",
-        size="1024x1024"
-    )
+        # Get configuration settings
+        load_dotenv()
+        endpoint = os.getenv("ENDPOINT")
+        model_deployment =  os.getenv("MODEL_DEPLOYMENT")
+        api_version = os.getenv("API_VERSION")
 
-    edited_base64 = edit_result.data[0].b64_json
-    save_base64_image(edited_base64, "edited_city.png")
-    print("Saved: edited_city.png")
+        # Initialize the client
+        token_provider = get_bearer_token_provider(
+            DefaultAzureCredential(
+                exclude_environment_credential=True,
+                exclude_managed_identity_credential=True
+            ),
+            "https://cognitiveservices.azure.com/.default"
+        )
 
-if __name__ == "__main__":
+        client = AzureOpenAI(
+            api_version=api_version,
+            azure_endpoint=endpoint,
+            azure_ad_token_provider=token_provider
+        )
+
+        img_no = 0
+        # Loop until the user types 'quit'
+        while True:
+            # Get input text
+            input_text = input("Enter the prompt (or type 'quit' to exit): ")
+            if input_text.lower() == "quit":
+                break
+            if len(input_text) == 0:
+                print("Please enter a prompt.")
+                continue
+
+            # Generate an image
+            result = client.images.generate(
+                model=model_deployment,
+                prompt=input_text,
+                n=1
+            )
+
+            json_response = json.loads(result.model_dump_json())
+            image_url = json_response["data"][0]["url"]
+
+            # save the image
+            img_no += 1
+            file_name = f"image_{img_no}.png"
+            save_image(image_url, file_name)
+
+    except Exception as ex:
+        print(ex)
+
+
+def save_image(image_url, file_name):
+    # Set the directory for the stored image
+    image_dir = os.path.join(os.getcwd(), 'images')
+
+    # If the directory doesn't exist, create it
+    if not os.path.isdir(image_dir):
+        os.mkdir(image_dir)
+
+    # Initialize the image path (note the filetype should be png)
+    image_path = os.path.join(image_dir, file_name)
+
+    # Retrieve the generated image
+    generated_image = requests.get(image_url).content  # download the image
+    with open(image_path, "wb") as image_file:
+        image_file.write(generated_image)
+    print(f"Image saved as {image_path}")
+
+
+if __name__ == '__main__':
     main()
